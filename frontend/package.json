@@ -20,6 +20,7 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "postinstall": "chmod +x node_modules/.bin/react-scripts",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -27,6 +28,10 @@
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.3.6"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "8.x"
   },
   "browserslist": {
     "production": [
