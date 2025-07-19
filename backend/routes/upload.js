@@ -152,11 +152,11 @@ router.post('/document', (req, res) => {
       }
 
       try {
-        // ✅ Upload to Cloudinary as RAW
+        // ✅ Upload to Cloudinary as RAW (for PDFs & docs)
         const result = await cloudinary.uploader.upload(req.file.path, {
           resource_type: 'raw',
           folder: 'chat-app/documents',
-          public_id: req.file.originalname.split('.')[0] // optional
+          public_id: req.file.originalname.split('.')[0]
         });
 
         // ✅ Remove temporary file after upload
@@ -168,7 +168,7 @@ router.post('/document', (req, res) => {
           success: true,
           message: 'Document uploaded successfully',
           data: {
-            fileUrl: result.secure_url,
+            fileUrl: result.secure_url, // now loads as raw
             fileName: req.file.originalname,
             fileSize: req.file.size,
             messageType: 'document',
