@@ -181,12 +181,15 @@ router.post('/document', (req, res) => {
       }
 
       try {
-        // ✅ Upload document as RAW with public access
+        // ✅ Sanitize filename (no spaces, only safe chars)
+        const safeFileName = req.file.originalname.replace(/\s+/g, '_');
+        const publicId = `chat-app/documents/${Date.now()}_${safeFileName}`;
+
+        // ✅ Upload document as RAW
         const result = await cloudinary.uploader.upload(req.file.path, {
           resource_type: 'raw',
-          folder: 'chat-app/documents',
-          access_mode: 'public', // makes it PUBLICLY viewable
-          public_id: `${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`
+          public_id: publicId,
+          access_mode: 'public' // ✅ ensure it’s publicly viewable
         });
 
         // ✅ Delete temp file
@@ -194,18 +197,19 @@ router.post('/document', (req, res) => {
           if (err) console.warn('Temp file delete failed:', err.message);
         });
 
-        // ✅ Generate direct PUBLIC URL (viewable without auth)
-        const documentUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${result.public_id}`;
+        // ✅ Instead of using direct Cloudinary URL, we’ll use our VIEW route
+        const viewUrl = `${process.env.BACKEND_URL}/api/upload/document/view/${encodeURIComponent(publicId)}`;
 
         res.json({
           success: true,
           message: 'Document uploaded',
           data: {
-            fileUrl: documentUrl, // ✅ THIS can be opened directly in browser
+            fileUrl: viewUrl,  // ✅ always use backend view route
+            originalCloudinaryUrl: result.secure_url,
             fileName: req.file.originalname,
             fileSize: req.file.size,
             messageType: 'document',
-            cloudinaryId: result.public_id
+            cloudinaryId: publicId
           }
         });
 
@@ -217,21 +221,30 @@ router.post('/document', (req, res) => {
   });
 });
 
-// ================= PROXY FALLBACK ROUTE =================
-// If for any reason the direct URL fails, you can still use this safe proxy
-router.get('/document/proxy', async (req, res) => {
+// ================= INLINE VIEW ROUTE =================
+// ✅ Opens PDF/doc inline with correct headers
+router.get('/document/view/:publicId', async (req, res) => {
   try {
-    const { url } = req.query;
-    if (!url) return res.status(400).send('Missing document URL');
+    const { publicId } = req.params;
 
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    // Build Cloudinary RAW URL
+    const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${publicId}`;
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename=document.pdf');
+    const response = await axios.get(cloudinaryUrl, { responseType: 'arraybuffer' });
+
+    // Detect file type from Cloudinary headers
+    const contentType = response.headers['content-type'] || 'application/pdf';
+    res.setHeader('Content-Type', contentType);
+
+    // ✅ Force inline display
+    const filename = publicId.split('/').pop();
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+
     res.send(response.data);
+
   } catch (error) {
-    console.error('Proxy error:', error.message);
-    res.status(500).send('Failed to fetch document');
+    console.error('Document view proxy error:', error.message);
+    res.status(500).send('Failed to load document');
   }
 });
 
