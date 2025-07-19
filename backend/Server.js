@@ -19,6 +19,13 @@ const userRoutes = require('./routes/users');
 const chatRoutes = require('./routes/chat');
 const uploadRoutes = require('./routes/upload');
 
+// ✅ Allowed frontend URLs (localhost + deployed Vercel)
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:8000',
+  'https://omega-ay9y.vercel.app'
+];
+
 // Create Express app
 const app = express();
 const server = http.createServer(app);
@@ -27,14 +34,20 @@ const server = http.createServer(app);
 connectDB();
 
 // Basic middleware
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:8000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  })
+);
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
+  })
+);
 app.use(compression());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
@@ -157,11 +170,11 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Initialize Socket.io
+// ✅ Initialize Socket.io with same allowed origins
 const io = socketIo(server, {
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:8000'],
-    methods: ["GET", "POST"],
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
     credentials: true
   }
 });
@@ -174,6 +187,7 @@ server.listen(PORT, () => {
   console.log('\n🚀 ========================================');
   console.log(`🌟 MERN Chat App Server Running`);
   console.log(`📡 Port: ${PORT}`);
+  console.log(`✅ Allowed Origins: ${allowedOrigins.join(', ')}`);
   console.log(`🔗 Test: http://localhost:${PORT}/test`);
   console.log(`🔗 API Test: http://localhost:${PORT}/api/test`);
   console.log(`🔗 Health: http://localhost:${PORT}/health`);
