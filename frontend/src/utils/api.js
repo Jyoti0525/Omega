@@ -1,9 +1,9 @@
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
-// Create axios instance with base configuration
+// ✅ Automatically picks backend URL from environment
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL: process.env.REACT_APP_API_URL || 'https://omega-chat-awsj.onrender.com/api',
   timeout: 30000, // 30 seconds timeout
   headers: {
     'Content-Type': 'application/json',
@@ -63,7 +63,9 @@ api.interceptors.response.use(
 
     if (!error.response) {
       // Network error - no response received
-      toast.error('Cannot connect to server. Please check if the backend is running on http://localhost:8000');
+      toast.error(
+        `Cannot connect to server. Please check if the backend is running on ${process.env.REACT_APP_API_URL || 'https://omega-chat-awsj.onrender.com/api'}`
+      );
       return Promise.reject(error);
     }
 
