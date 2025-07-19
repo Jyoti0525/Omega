@@ -5,6 +5,7 @@ const cloudinary = require('cloudinary').v2;
 const authMiddleware = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 const router = express.Router();
 
@@ -15,31 +16,54 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// ✅ Cloudinary storage for images/videos
+// ✅ Utility: Cloudinary storage for images/videos
 const createCloudinaryStorage = (folder, allowedFormats) => {
   return new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
       folder: `chat-app/${folder}`,
       allowed_formats: allowedFormats,
-      transformation: folder === 'images' ? [
-        { width: 800, height: 600, crop: 'limit' },
-        { quality: 'auto:good' }
-      ] : undefined
+      transformation:
+        folder === 'images'
+          ? [
+              { width: 800, height: 600, crop: 'limit' },
+              { quality: 'auto:good' }
+            ]
+          : undefined
     }
   });
 };
 
-const imageStorage = createCloudinaryStorage('images', ['jpg', 'jpeg', 'png', 'gif', 'webp']);
-const videoStorage = createCloudinaryStorage('videos', ['mp4', 'avi', 'mov', 'wmv', 'flv']);
+const imageStorage = createCloudinaryStorage('images', [
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp'
+]);
+const videoStorage = createCloudinaryStorage('videos', [
+  'mp4',
+  'avi',
+  'mov',
+  'wmv',
+  'flv'
+]);
 
 // ✅ File filter for allowed mimetypes
 const fileFilter = (allowedTypes) => (req, file, cb) => {
   const fileType = file.mimetype.split('/')[0];
-  if (allowedTypes.includes(fileType) || allowedTypes.includes(file.mimetype)) {
+  if (
+    allowedTypes.includes(fileType) ||
+    allowedTypes.includes(file.mimetype)
+  ) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Only ${allowedTypes.join(', ')} allowed.`), false);
+    cb(
+      new Error(
+        `Invalid file type. Only ${allowedTypes.join(', ')} allowed.`
+      ),
+      false
+    );
   }
 };
 
@@ -101,7 +125,9 @@ router.post('/image', (req, res) => {
   uploadImage.single('file')(req, res, (error) => {
     handleUploadError(error, req, res, () => {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No image provided' });
+        return res
+          .status(400)
+          .json({ success: false, message: 'No image provided' });
       }
 
       res.json({
@@ -124,7 +150,9 @@ router.post('/video', (req, res) => {
   uploadVideo.single('file')(req, res, (error) => {
     handleUploadError(error, req, res, () => {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No video provided' });
+        return res
+          .status(400)
+          .json({ success: false, message: 'No video provided' });
       }
 
       res.json({
@@ -142,21 +170,23 @@ router.post('/video', (req, res) => {
   });
 });
 
-// ================= DOCUMENT UPLOAD (FIXED) =================
+// ================= DOCUMENT UPLOAD =================
 router.post('/document', (req, res) => {
   multerDisk.single('file')(req, res, async (error) => {
     handleUploadError(error, req, res, async () => {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No document provided' });
+        return res
+          .status(400)
+          .json({ success: false, message: 'No document provided' });
       }
 
       try {
-        // ✅ Upload to Cloudinary as RAW & PUBLIC
+        // ✅ Upload document as RAW with public access
         const result = await cloudinary.uploader.upload(req.file.path, {
           resource_type: 'raw',
           folder: 'chat-app/documents',
-          access_mode: 'public', // makes it public
-          public_id: req.file.originalname.split('.')[0]
+          access_mode: 'public', // makes it PUBLICLY viewable
+          public_id: `${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`
         });
 
         // ✅ Delete temp file
@@ -164,14 +194,14 @@ router.post('/document', (req, res) => {
           if (err) console.warn('Temp file delete failed:', err.message);
         });
 
-        // ✅ Generate a SAFE VIEW URL
+        // ✅ Generate direct PUBLIC URL (viewable without auth)
         const documentUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${result.public_id}`;
 
         res.json({
           success: true,
           message: 'Document uploaded',
           data: {
-            fileUrl: documentUrl, // use direct raw URL
+            fileUrl: documentUrl, // ✅ THIS can be opened directly in browser
             fileName: req.file.originalname,
             fileSize: req.file.size,
             messageType: 'document',
@@ -187,19 +217,20 @@ router.post('/document', (req, res) => {
   });
 });
 
-// ================= DOCUMENT PROXY ROUTE =================
-// ✅ If Cloudinary blocks direct access, frontend can call this:
-// ✅ /api/upload/document/proxy?url=<cloudinary_url>
+// ================= PROXY FALLBACK ROUTE =================
+// If for any reason the direct URL fails, you can still use this safe proxy
 router.get('/document/proxy', async (req, res) => {
   try {
     const { url } = req.query;
     if (!url) return res.status(400).send('Missing document URL');
 
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+
     res.setHeader('Content-Type', 'application/pdf');
-    const response = await fetch(url);
-    response.body.pipe(res);
+    res.setHeader('Content-Disposition', 'inline; filename=document.pdf');
+    res.send(response.data);
   } catch (error) {
-    console.error('Proxy error:', error);
+    console.error('Proxy error:', error.message);
     res.status(500).send('Failed to fetch document');
   }
 });
@@ -209,19 +240,27 @@ router.delete('/:cloudinaryId', async (req, res) => {
   try {
     const { cloudinaryId } = req.params;
     if (!cloudinaryId) {
-      return res.status(400).json({ success: false, message: 'Cloudinary ID required' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Cloudinary ID required' });
     }
 
-    const result = await cloudinary.uploader.destroy(cloudinaryId, { resource_type: 'raw' });
+    const result = await cloudinary.uploader.destroy(cloudinaryId, {
+      resource_type: 'raw'
+    });
 
     if (result.result === 'ok') {
       res.json({ success: true, message: 'File deleted' });
     } else {
-      res.status(404).json({ success: false, message: 'File not found or already deleted' });
+      res
+        .status(404)
+        .json({ success: false, message: 'File not found or already deleted' });
     }
   } catch (error) {
     console.error('Delete file error:', error);
-    res.status(500).json({ success: false, message: 'Server error while deleting file' });
+    res
+      .status(500)
+      .json({ success: false, message: 'Server error while deleting file' });
   }
 });
 
