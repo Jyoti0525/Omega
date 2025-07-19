@@ -175,21 +175,15 @@ router.post('/document', (req, res) => {
   multerDisk.single('file')(req, res, async (error) => {
     handleUploadError(error, req, res, async () => {
       if (!req.file) {
-        return res
-          .status(400)
-          .json({ success: false, message: 'No document provided' });
+        return res.status(400).json({ success: false, message: 'No document provided' });
       }
 
       try {
-        // ✅ Sanitize filename (no spaces, only safe chars)
-        const safeFileName = req.file.originalname.replace(/\s+/g, '_');
-        const publicId = `chat-app/documents/${Date.now()}_${safeFileName}`;
-
-        // ✅ Upload document as RAW
         const result = await cloudinary.uploader.upload(req.file.path, {
           resource_type: 'raw',
-          public_id: publicId,
-          access_mode: 'public' // ✅ ensure it’s publicly viewable
+          folder: 'chat-app/documents',
+          access_mode: 'public',
+          public_id: `${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`
         });
 
         // ✅ Delete temp file
@@ -197,19 +191,18 @@ router.post('/document', (req, res) => {
           if (err) console.warn('Temp file delete failed:', err.message);
         });
 
-        // ✅ Instead of using direct Cloudinary URL, we’ll use our VIEW route
-        const viewUrl = `${process.env.BACKEND_URL}/api/upload/document/view/${encodeURIComponent(publicId)}`;
+        // ✅ Direct usable URL (already signed & public)
+        const documentUrl = result.secure_url;
 
         res.json({
           success: true,
           message: 'Document uploaded',
           data: {
-            fileUrl: viewUrl,  // ✅ always use backend view route
-            originalCloudinaryUrl: result.secure_url,
+            fileUrl: documentUrl,    // ✅ now using Cloudinary's own secure_url
             fileName: req.file.originalname,
             fileSize: req.file.size,
             messageType: 'document',
-            cloudinaryId: publicId
+            cloudinaryId: result.public_id
           }
         });
 
@@ -221,30 +214,27 @@ router.post('/document', (req, res) => {
   });
 });
 
-// ================= INLINE VIEW ROUTE =================
-// ✅ Opens PDF/doc inline with correct headers
-router.get('/document/view/:publicId', async (req, res) => {
+// ================= SAFE DOCUMENT VIEW ROUTE =================
+// ✅ Now you can always open using /api/upload/document/view/:cloudinaryId
+router.get('/document/view/:cloudinaryId', async (req, res) => {
   try {
-    const { publicId } = req.params;
+    const { cloudinaryId } = req.params;
 
-    // Build Cloudinary RAW URL
-    const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${publicId}`;
+    if (!cloudinaryId) return res.status(400).send('Missing document ID');
 
-    const response = await axios.get(cloudinaryUrl, { responseType: 'arraybuffer' });
+    // ✅ Build direct Cloudinary URL
+    const rawUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${cloudinaryId}`;
 
-    // Detect file type from Cloudinary headers
-    const contentType = response.headers['content-type'] || 'application/pdf';
-    res.setHeader('Content-Type', contentType);
+    // ✅ Stream document to browser
+    const response = await axios.get(rawUrl, { responseType: 'arraybuffer' });
 
-    // ✅ Force inline display
-    const filename = publicId.split('/').pop();
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename=document.pdf');
     res.send(response.data);
 
   } catch (error) {
-    console.error('Document view proxy error:', error.message);
-    res.status(500).send('Failed to load document');
+    console.error('View error:', error.message);
+    res.status(500).send('Failed to fetch document');
   }
 });
 
