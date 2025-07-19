@@ -21,14 +21,16 @@ export const SocketProvider = ({ children }) => {
   const [connected, setConnected] = useState(false);
   const { user, token } = useAuth();
 
+  // ✅ Use Render backend URL as default if env is missing
+  const SOCKET_URL =
+    process.env.REACT_APP_SERVER_URL || 'https://omega-chat-awsj.onrender.com';
+
   // Initialize socket connection
   useEffect(() => {
     if (user && token) {
-      const newSocket = io(process.env.REACT_APP_SERVER_URL || 'http://localhost:8000', {
-        auth: {
-          token: token
-        },
-        transports: ['websocket', 'polling']
+      const newSocket = io(SOCKET_URL, {
+        auth: { token },
+        transports: ['websocket', 'polling'],
       });
 
       setSocket(newSocket);
@@ -56,28 +58,28 @@ export const SocketProvider = ({ children }) => {
       });
 
       newSocket.on('userOnline', (data) => {
-        setOnlineUsers(prev => {
-          const filtered = prev.filter(u => u.userId !== data.userId);
+        setOnlineUsers((prev) => {
+          const filtered = prev.filter((u) => u.userId !== data.userId);
           return [...filtered, data];
         });
         toast.success(`${data.userInfo.name} is now online`, {
           duration: 2000,
-          icon: '🟢'
+          icon: '🟢',
         });
       });
 
       newSocket.on('userOffline', (data) => {
-        setOnlineUsers(prev => prev.filter(u => u.userId !== data.userId));
+        setOnlineUsers((prev) => prev.filter((u) => u.userId !== data.userId));
         toast(`${data.userInfo.name} went offline`, {
           duration: 2000,
-          icon: '🔴'
+          icon: '🔴',
         });
       });
 
       // Message event handlers
       newSocket.on('newMessage', (data) => {
-        setMessages(prev => [...prev, data.message]);
-        
+        setMessages((prev) => [...prev, data.message]);
+
         // Show notification if message is not from current user
         if (data.message.sender._id !== user._id) {
           toast.success(`New message from ${data.message.sender.name}`, {
@@ -85,44 +87,51 @@ export const SocketProvider = ({ children }) => {
             onClick: () => {
               // Navigate to chat if needed
               window.location.href = `/chat/${data.chatId}`;
-            }
+            },
           });
         }
       });
 
       newSocket.on('messageNotification', (data) => {
         if (data.sender._id !== user._id) {
-          toast.success(`📩 ${data.sender.name}: ${data.message.content || 'Sent a file'}`, {
-            duration: 4000,
-            onClick: () => {
-              window.location.href = `/chat/${data.chatId}`;
+          toast.success(
+            `📩 ${data.sender.name}: ${
+              data.message.content || 'Sent a file'
+            }`,
+            {
+              duration: 4000,
+              onClick: () => {
+                window.location.href = `/chat/${data.chatId}`;
+              },
             }
-          });
+          );
         }
       });
 
       // Typing event handlers
       newSocket.on('userTyping', (data) => {
         if (data.userId !== user._id) {
-          setTypingUsers(prev => {
-            const filtered = prev.filter(u => u.userId !== data.userId);
+          setTypingUsers((prev) => {
+            const filtered = prev.filter((u) => u.userId !== data.userId);
             return [...filtered, data];
           });
         }
       });
 
       newSocket.on('userStoppedTyping', (data) => {
-        setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
+        setTypingUsers((prev) => prev.filter((u) => u.userId !== data.userId));
       });
 
       // Message read event handlers
       newSocket.on('messagesRead', (data) => {
-        setMessages(prev => prev.map(msg => {
-          if (data.messageIds.includes(msg._id)) {
-            return { ...msg, isRead: true, readAt: new Date() };
-          }
-          return msg;
-        }));
+        setMessages((prev) =>
+          prev.map((msg) => {
+            if (data.messageIds.includes(msg._id)) {
+              return { ...msg, isRead: true, readAt: new Date() };
+            }
+            return msg;
+          })
+        );
       });
 
       // Error handlers
@@ -137,23 +146,21 @@ export const SocketProvider = ({ children }) => {
         newSocket.close();
       };
     }
-  }, [user, token]);
+  }, [user, token, SOCKET_URL]);
 
-  // Join a chat room
+  // ✅ Chat helper functions remain same
   const joinChat = (chatId) => {
     if (socket && connected) {
       socket.emit('joinChat', { chatId });
     }
   };
 
-  // Leave a chat room
   const leaveChat = (chatId) => {
     if (socket && connected) {
       socket.emit('leaveChat', { chatId });
     }
   };
 
-  // Send a message
   const sendMessage = (messageData) => {
     if (socket && connected) {
       socket.emit('sendMessage', messageData);
@@ -163,57 +170,48 @@ export const SocketProvider = ({ children }) => {
     return false;
   };
 
-  // Send typing indicator
   const sendTyping = (chatId, receiverId) => {
     if (socket && connected) {
       socket.emit('typing', { chatId, receiverId });
     }
   };
 
-  // Send stop typing indicator
   const sendStopTyping = (chatId, receiverId) => {
     if (socket && connected) {
       socket.emit('stopTyping', { chatId, receiverId });
     }
   };
 
-  // Mark messages as read
   const markMessagesAsRead = (chatId, messageIds) => {
     if (socket && connected) {
       socket.emit('markAsRead', { chatId, messageIds });
     }
   };
 
-  // Get online status of a user
   const isUserOnline = (userId) => {
-    return onlineUsers.some(user => user.userId === userId);
+    return onlineUsers.some((user) => user.userId === userId);
   };
 
-  // Get typing users for a chat
   const getTypingUsers = (chatId) => {
-    return typingUsers.filter(user => user.chatId === chatId);
+    return typingUsers.filter((user) => user.chatId === chatId);
   };
 
-  // Clear messages (when switching chats)
   const clearMessages = () => {
     setMessages([]);
   };
 
-  // Add message to local state (for optimistic updates)
   const addMessage = (message) => {
-    setMessages(prev => [...prev, message]);
+    setMessages((prev) => [...prev, message]);
   };
 
-  // Update message in local state
   const updateMessage = (messageId, updates) => {
-    setMessages(prev => prev.map(msg => 
-      msg._id === messageId ? { ...msg, ...updates } : msg
-    ));
+    setMessages((prev) =>
+      prev.map((msg) => (msg._id === messageId ? { ...msg, ...updates } : msg))
+    );
   };
 
-  // Remove message from local state
   const removeMessage = (messageId) => {
-    setMessages(prev => prev.filter(msg => msg._id !== messageId));
+    setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
   };
 
   const contextValue = {
@@ -233,7 +231,7 @@ export const SocketProvider = ({ children }) => {
     clearMessages,
     addMessage,
     updateMessage,
-    removeMessage
+    removeMessage,
   };
 
   return (
