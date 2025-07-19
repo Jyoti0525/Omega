@@ -15,7 +15,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// ✅ Utility: Cloudinary storage for images/videos
+// ✅ Cloudinary storage for images/videos
 const createCloudinaryStorage = (folder, allowedFormats) => {
   return new CloudinaryStorage({
     cloudinary: cloudinary,
@@ -30,7 +30,6 @@ const createCloudinaryStorage = (folder, allowedFormats) => {
   });
 };
 
-// ✅ Storage for images/videos
 const imageStorage = createCloudinaryStorage('images', ['jpg', 'jpeg', 'png', 'gif', 'webp']);
 const videoStorage = createCloudinaryStorage('videos', ['mp4', 'avi', 'mov', 'wmv', 'flv']);
 
@@ -40,7 +39,7 @@ const fileFilter = (allowedTypes) => (req, file, cb) => {
   if (allowedTypes.includes(fileType) || allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Only ${allowedTypes.join(', ')} files are allowed.`), false);
+    cb(new Error(`Invalid file type. Only ${allowedTypes.join(', ')} allowed.`), false);
   }
 };
 
@@ -75,7 +74,7 @@ const handleUploadError = (error, req, res, next) => {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
-        message: 'File size too large. Please check the file size limits.'
+        message: 'File size too large.'
       });
     }
     return res.status(400).json({
@@ -98,16 +97,16 @@ const handleUploadError = (error, req, res, next) => {
 router.use(authMiddleware);
 
 // ================= IMAGE UPLOAD =================
-router.post('/image', (req, res, next) => {
+router.post('/image', (req, res) => {
   uploadImage.single('file')(req, res, (error) => {
     handleUploadError(error, req, res, () => {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No image file provided' });
+        return res.status(400).json({ success: false, message: 'No image provided' });
       }
 
       res.json({
         success: true,
-        message: 'Image uploaded successfully',
+        message: 'Image uploaded',
         data: {
           fileUrl: req.file.path,
           fileName: req.file.originalname,
@@ -121,16 +120,16 @@ router.post('/image', (req, res, next) => {
 });
 
 // ================= VIDEO UPLOAD =================
-router.post('/video', (req, res, next) => {
+router.post('/video', (req, res) => {
   uploadVideo.single('file')(req, res, (error) => {
     handleUploadError(error, req, res, () => {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No video file provided' });
+        return res.status(400).json({ success: false, message: 'No video provided' });
       }
 
       res.json({
         success: true,
-        message: 'Video uploaded successfully',
+        message: 'Video uploaded',
         data: {
           fileUrl: req.file.path,
           fileName: req.file.originalname,
@@ -148,27 +147,31 @@ router.post('/document', (req, res) => {
   multerDisk.single('file')(req, res, async (error) => {
     handleUploadError(error, req, res, async () => {
       if (!req.file) {
-        return res.status(400).json({ success: false, message: 'No document file provided' });
+        return res.status(400).json({ success: false, message: 'No document provided' });
       }
 
       try {
-        // ✅ Upload to Cloudinary as RAW (for PDFs & docs)
+        // ✅ Upload to Cloudinary as RAW & PUBLIC
         const result = await cloudinary.uploader.upload(req.file.path, {
           resource_type: 'raw',
           folder: 'chat-app/documents',
+          access_mode: 'public', // makes it public
           public_id: req.file.originalname.split('.')[0]
         });
 
-        // ✅ Remove temporary file after upload
+        // ✅ Delete temp file
         fs.unlink(req.file.path, (err) => {
-          if (err) console.warn('Temp file not deleted:', err.message);
+          if (err) console.warn('Temp file delete failed:', err.message);
         });
+
+        // ✅ Generate a SAFE VIEW URL
+        const documentUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${result.public_id}`;
 
         res.json({
           success: true,
-          message: 'Document uploaded successfully',
+          message: 'Document uploaded',
           data: {
-            fileUrl: result.secure_url, // now loads as raw
+            fileUrl: documentUrl, // use direct raw URL
             fileName: req.file.originalname,
             fileSize: req.file.size,
             messageType: 'document',
@@ -177,11 +180,28 @@ router.post('/document', (req, res) => {
         });
 
       } catch (err) {
-        console.error('Cloudinary document upload error:', err);
+        console.error('Cloudinary upload error:', err);
         res.status(500).json({ success: false, message: 'Failed to upload document' });
       }
     });
   });
+});
+
+// ================= DOCUMENT PROXY ROUTE =================
+// ✅ If Cloudinary blocks direct access, frontend can call this:
+// ✅ /api/upload/document/proxy?url=<cloudinary_url>
+router.get('/document/proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) return res.status(400).send('Missing document URL');
+
+    res.setHeader('Content-Type', 'application/pdf');
+    const response = await fetch(url);
+    response.body.pipe(res);
+  } catch (error) {
+    console.error('Proxy error:', error);
+    res.status(500).send('Failed to fetch document');
+  }
 });
 
 // ================= DELETE FILE =================
@@ -189,13 +209,13 @@ router.delete('/:cloudinaryId', async (req, res) => {
   try {
     const { cloudinaryId } = req.params;
     if (!cloudinaryId) {
-      return res.status(400).json({ success: false, message: 'Cloudinary ID is required' });
+      return res.status(400).json({ success: false, message: 'Cloudinary ID required' });
     }
 
     const result = await cloudinary.uploader.destroy(cloudinaryId, { resource_type: 'raw' });
 
     if (result.result === 'ok') {
-      res.json({ success: true, message: 'File deleted successfully' });
+      res.json({ success: true, message: 'File deleted' });
     } else {
       res.status(404).json({ success: false, message: 'File not found or already deleted' });
     }
